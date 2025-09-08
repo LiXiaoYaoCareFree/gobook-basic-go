@@ -56,7 +56,7 @@ func Byte() {
 	var str string = "hello"
 	var bs []byte = []byte(str)
 	var str1 string = string(bs)
-	println(str1)
+	println(bs, '\n', str1)
 }
 
 func Bool() {

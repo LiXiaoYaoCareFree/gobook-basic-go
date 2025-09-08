@@ -1,1 +1,1 @@
-package gobook
+package main
