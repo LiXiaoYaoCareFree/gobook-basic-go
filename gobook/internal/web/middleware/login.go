@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"encoding/gob"
+	"fmt"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"net/http"
@@ -11,34 +12,39 @@ import (
 type LoginMiddlewareBuilder struct {
 }
 
-func (*LoginMiddlewareBuilder) CheckLogin() gin.HandlerFunc {
-	gob.Register(time.Time{})
+func (m *LoginMiddlewareBuilder) CheckLogin() gin.HandlerFunc {
+	// 注册一下这个类型
+	gob.Register(time.Now())
 	return func(ctx *gin.Context) {
-		// 不需要校验
-		if ctx.Request.URL.Path == "/users/signup" ||
-			ctx.Request.URL.Path == "/users/login" {
+		path := ctx.Request.URL.Path
+		if path == "/users/signup" || path == "/users/login" {
+			// 不需要登录校验
 			return
 		}
 		sess := sessions.Default(ctx)
-		// 验证一下就可以
-		if sess.Get("userId") == nil {
+		userId := sess.Get("userId")
+		if userId == nil {
+			// 中断，不要往后执行，也就是不要执行后面的业务逻辑
 			ctx.AbortWithStatus(http.StatusUnauthorized)
 			return
 		}
-		//ctx.Next()
-		const timeKey = "update_time"
-		val := sess.Get(timeKey)
-		updateTime, ok := val.(time.Time)
-		// 处于演示效果，整个 session 的过期时间是 1 分钟，所以我这里十秒钟刷新一次。
-		// val == nil 是说明刚登录成功
-		// 我们不在登录里面初始化这个 update_time，是因为它属于"刷新"机制，而不属于登录机制
-		if val == nil || (ok && time.Now().Sub(updateTime) > time.Second*10) {
-			sess.Options(sessions.Options{
-				MaxAge: 60,
-			})
-			sess.Set(timeKey, time.Now())
-			if err := sess.Save(); err != nil {
-				panic(err)
+
+		now := time.Now()
+
+		// 我怎么知道，要刷新了呢？
+		// 假如说，我们的策略是每分钟刷一次，我怎么知道，已经过了一分钟？
+		const updateTimeKey = "update_time"
+		// 试着拿出上一次刷新时间
+		val := sess.Get(updateTimeKey)
+		lastUpdateTime, ok := val.(time.Time)
+		if val == nil || !ok || now.Sub(lastUpdateTime) > time.Second*10 {
+			// 你这是第一次进来
+			sess.Set(updateTimeKey, now)
+			sess.Set("userId", userId)
+			err := sess.Save()
+			if err != nil {
+				// 打日志
+				fmt.Println(err)
 			}
 		}
 	}
