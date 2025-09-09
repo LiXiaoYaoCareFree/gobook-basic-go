@@ -22,8 +22,8 @@ const onFinishFailed = (errorInfo: any) => {
     alert("输入有误")
 };
 
-const LoginForm: React.FC = () => {
-    return (<Form
+const LoginForm: React.FC = () => (
+    <Form
         name="basic"
         labelCol={{ span: 8 }}
         wrapperCol={{ span: 16 }}
@@ -53,17 +53,11 @@ const LoginForm: React.FC = () => {
             <Button type="primary" htmlType="submit">
                 登录
             </Button>
-            <Link href={"/users/login_sms"} >
-                &nbsp;&nbsp;手机号登录
-            </Link>
-            <Link href={"/users/login_wechat"} >
-                &nbsp;&nbsp;微信扫码登录
-            </Link>
             <Link href={"/users/signup"} >
-                &nbsp;&nbsp;注册
+                &nbsp;注册
             </Link>
         </Form.Item>
     </Form>
-)};
+);
 
 export default LoginForm;

@@ -3,7 +3,7 @@ package main
 import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-contrib/sessions"
-	"github.com/gin-contrib/sessions/cookie"
+	"github.com/gin-contrib/sessions/memstore"
 	"github.com/gin-gonic/gin"
 	"gobook-basic-go/gobook/internal/repository"
 	"gobook-basic-go/gobook/internal/repository/dao"
@@ -18,18 +18,9 @@ import (
 
 func main() {
 	db := initDB()
-
 	server := initWebServer()
-	initUserHdl(db, server)
+	initUser(server, db)
 	server.Run(":8080")
-}
-
-func initUserHdl(db *gorm.DB, server *gin.Engine) {
-	ud := dao.NewUserDAO(db)
-	ur := repository.NewUserRepository(ud)
-	us := service.NewUserService(ur)
-	hdl := web.NewUserHandler(us)
-	hdl.RegisterRoutes(server)
 }
 
 func initDB() *gorm.DB {
@@ -37,7 +28,6 @@ func initDB() *gorm.DB {
 	if err != nil {
 		panic(err)
 	}
-
 	err = dao.InitTables(db)
 	if err != nil {
 		panic(err)
@@ -47,18 +37,11 @@ func initDB() *gorm.DB {
 
 func initWebServer() *gin.Engine {
 	server := gin.Default()
-
 	server.Use(cors.New(cors.Config{
-		//AllowAllOrigins: true,
-		//AllowOrigins:     []string{"http://localhost:3000"},
 		AllowCredentials: true,
-
-		AllowHeaders: []string{"Content-Type"},
-		//AllowHeaders: []string{"content-type"},
-		//AllowMethods: []string{"POST"},
+		AllowHeaders:     []string{"Content-Type"},
 		AllowOriginFunc: func(origin string) bool {
 			if strings.HasPrefix(origin, "http://localhost") {
-				//if strings.Contains(origin, "localhost") {
 				return true
 			}
 			return strings.Contains(origin, "your_company.com")
@@ -66,10 +49,36 @@ func initWebServer() *gin.Engine {
 		MaxAge: 12 * time.Hour,
 	}))
 
+	//store := cookie.NewStore([]byte("secret"))
+
+	// 这是基于内存的实现，第一个参数是 authentication key，最好是 32 或者 64 位
+	// 第二个参数是 encryption key
+	store := memstore.NewStore([]byte("moyn8y9abnd7q4zkq2m73yw8tu9j5ixm"),
+		[]byte("o6jdlo2cb9f9pb6h46fjmllw481ldebj"))
+	// 第一个参数是最大空闲连接数量
+	// 第二个就是 tcp，你不太可能用 udp
+	// 第三、四个 就是连接信息和密码
+	// 第五第六就是两个 key
+	//store, err := redis.NewStore(16, "tcp",
+	//	"localhost:6379", "",
+	//	// authentication key, encryption key
+	//	[]byte("moyn8y9abnd7q4zkq2m73yw8tu9j5ixm"),
+	//	[]byte("o6jdlo2cb9f9pb6h46fjmllw481ldebj"))
+	//if err != nil {
+	//	panic(err)
+	//}
+	// cookie 的名字叫做ssid
+	server.Use(sessions.Sessions("ssid", store))
+	// 登录校验
 	login := &middleware.LoginMiddlewareBuilder{}
-	// 存储数据的，也就是你 userId 存哪里
-	// 直接存 cookie
-	store := cookie.NewStore([]byte("secret"))
-	server.Use(sessions.Sessions("ssid", store), login.CheckLogin())
+	server.Use(login.CheckLogin())
 	return server
+}
+
+func initUser(server *gin.Engine, db *gorm.DB) {
+	ud := dao.NewUserDAO(db)
+	ur := repository.NewUserRepository(ud)
+	us := service.NewUserService(ur)
+	c := web.NewUserHandler(us)
+	c.RegisterRoutes(server)
 }

@@ -6,40 +6,47 @@ import (
 	"gobook-basic-go/gobook/internal/repository/dao"
 )
 
-var (
-	ErrDuplicateEmail = dao.ErrDuplicateEmail
-	ErrUserNotFound   = dao.ErrRecordNotFound
-)
+var ErrUserDuplicateEmail = dao.ErrUserDuplicateEmail
+var ErrUserNotFound = dao.ErrDataNotFound
 
 type UserRepository struct {
 	dao *dao.UserDAO
 }
 
-func NewUserRepository(dao *dao.UserDAO) *UserRepository {
+func NewUserRepository(d *dao.UserDAO) *UserRepository {
 	return &UserRepository{
-		dao: dao,
+		dao: d,
 	}
 }
 
-func (repo *UserRepository) Create(ctx context.Context, u domain.User) error {
-	return repo.dao.Insert(ctx, dao.User{
+func (ur *UserRepository) Create(ctx context.Context, u domain.User) error {
+	err := ur.dao.Insert(ctx, dao.User{
 		Email:    u.Email,
 		Password: u.Password,
 	})
+	return err
 }
 
-func (repo *UserRepository) FindByEmail(ctx context.Context, email string) (domain.User, error) {
-	u, err := repo.dao.FindByEmail(ctx, email)
-	if err != nil {
-		return domain.User{}, err
-	}
-	return repo.toDomain(u), nil
-}
+func (ur *UserRepository) FindByEmail(ctx context.Context,
+	email string) (domain.User, error) {
+	u, err := ur.dao.FindByEmail(ctx, email)
 
-func (repo *UserRepository) toDomain(u dao.User) domain.User {
+	// 因为我们用的是别名机制，所以这里不用这么写
+	//if err == gorm.ErrRecordNotFound {
+	//	return ErrUserNotFound
+	//}
 	return domain.User{
 		Id:       u.Id,
 		Email:    u.Email,
 		Password: u.Password,
-	}
+	}, err
+}
+
+func (ur *UserRepository) FindById(ctx context.Context,
+	id int64) (domain.User, error) {
+	u, err := ur.dao.FindById(ctx, id)
+	return domain.User{
+		Email:    u.Email,
+		Password: u.Password,
+	}, err
 }
