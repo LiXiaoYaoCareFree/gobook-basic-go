@@ -64,9 +64,7 @@ func initWebServer() *gin.Engine {
 			return strings.Contains(origin, "your_company.com")
 		},
 		MaxAge: 12 * time.Hour,
-	}), func(ctx *gin.Context) {
-		println("这是我的 Middleware")
-	})
+	}))
 
 	login := &middleware.LoginMiddlewareBuilder{}
 	// 存储数据的，也就是你 userId 存哪里
