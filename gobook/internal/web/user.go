@@ -4,50 +4,51 @@ import (
 	regexp "github.com/dlclark/regexp2"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
+	jwt "github.com/golang-jwt/jwt/v5"
 	"gobook-basic-go/gobook/internal/domain"
 	"gobook-basic-go/gobook/internal/service"
 	"net/http"
+	"time"
 )
 
 const (
 	emailRegexPattern = "^\\w+([-+.]\\w+)*@\\w+([-.]\\w+)*\\.\\w+([-.]\\w+)*$"
 	// 和上面比起来，用 ` 看起来就比较清爽
 	passwordRegexPattern = `^(?=.*[A-Za-z])(?=.*\d)(?=.*[$@$!%*#?&])[A-Za-z\d$@$!%*#?&]{8,}$`
-
-	userIdKey = "userId"
 )
 
 type UserHandler struct {
-	svc              *service.UserService
-	emailRegexExp    *regexp.Regexp
-	passwordRegexExp *regexp.Regexp
+	emailRexExp    *regexp.Regexp
+	passwordRexExp *regexp.Regexp
+	svc            *service.UserService
 }
 
 func NewUserHandler(svc *service.UserService) *UserHandler {
 	return &UserHandler{
-		svc:              svc,
-		emailRegexExp:    regexp.MustCompile(emailRegexPattern, regexp.None),
-		passwordRegexExp: regexp.MustCompile(passwordRegexPattern, regexp.None),
+		emailRexExp:    regexp.MustCompile(emailRegexPattern, regexp.None),
+		passwordRexExp: regexp.MustCompile(passwordRegexPattern, regexp.None),
+		svc:            svc,
 	}
 }
 
-func (c *UserHandler) RegisterRoutes(server *gin.Engine) {
-	// 直接注册
-	//server.POST("/users/signup", c.SignUp)
-	//server.POST("/users/login", c.Login)
-	//server.POST("/users/edit", c.Edit)
-	//server.GET("/users/profile", c.Profile)
-
-	// 分组注册
+func (h *UserHandler) RegisterRoutes(server *gin.Engine) {
+	// REST 风格
+	//server.POST("/user", h.SignUp)
+	//server.PUT("/user", h.SignUp)
+	//server.GET("/users/:username", h.Profile)
 	ug := server.Group("/users")
-	ug.POST("/signup", c.SignUp)
-	ug.POST("/login", c.Login)
-	ug.POST("/edit", c.Edit)
-	ug.GET("/profile", c.Profile)
+	// POST /users/signup
+	ug.POST("/signup", h.SignUp)
+	// POST /users/login
+	//ug.POST("/login", h.Login)
+	ug.POST("/login", h.LoginJWT)
+	// POST /users/edit
+	ug.POST("/edit", h.Edit)
+	// GET /users/profile
+	ug.GET("/profile", h.Profile)
 }
 
-// SignUp 用户注册接口
-func (c *UserHandler) SignUp(ctx *gin.Context) {
+func (h *UserHandler) SignUp(ctx *gin.Context) {
 	type SignUpReq struct {
 		Email           string `json:"email"`
 		Password        string `json:"password"`
@@ -55,102 +56,126 @@ func (c *UserHandler) SignUp(ctx *gin.Context) {
 	}
 
 	var req SignUpReq
-	// 当我们调用 Bind 方法的时候，如果有问题，Bind 方法已经直接写响应回去了
 	if err := ctx.Bind(&req); err != nil {
 		return
 	}
 
-	isEmail, err := c.emailRegexExp.MatchString(req.Email)
+	isEmail, err := h.emailRexExp.MatchString(req.Email)
 	if err != nil {
 		ctx.String(http.StatusOK, "系统错误")
 		return
 	}
 	if !isEmail {
-		ctx.String(http.StatusOK, "邮箱不正确")
+		ctx.String(http.StatusOK, "非法邮箱格式")
 		return
 	}
 
 	if req.Password != req.ConfirmPassword {
-		ctx.String(http.StatusOK, "两次输入的密码不相同")
+		ctx.String(http.StatusOK, "两次输入密码不对")
 		return
 	}
 
-	isPassword, err := c.passwordRegexExp.MatchString(req.Password)
+	isPassword, err := h.passwordRexExp.MatchString(req.Password)
 	if err != nil {
 		ctx.String(http.StatusOK, "系统错误")
 		return
 	}
 	if !isPassword {
-		ctx.String(http.StatusOK,
-			"密码必须包含数字、特殊字符，并且长度不能小于 8 位")
+		ctx.String(http.StatusOK, "密码必须包含字母、数字、特殊字符，并且不少于八位")
 		return
 	}
 
-	err = c.svc.Signup(ctx.Request.Context(),
-		domain.User{Email: req.Email, Password: req.ConfirmPassword})
-
-	if err == service.ErrUserDuplicateEmail {
-		ctx.String(http.StatusOK, "重复邮箱，请换一个邮箱")
-		return
+	err = h.svc.Signup(ctx, domain.User{
+		Email:    req.Email,
+		Password: req.Password,
+	})
+	switch err {
+	case nil:
+		ctx.String(http.StatusOK, "注册成功")
+	case service.ErrDuplicateEmail:
+		ctx.String(http.StatusOK, "邮箱冲突，请换一个")
+	default:
+		ctx.String(http.StatusOK, "系统错误")
 	}
-	if err != nil {
-		ctx.String(http.StatusOK, "服务器异常，注册失败")
-		return
-	}
-	ctx.String(http.StatusOK, "hello, 注册成功")
 }
 
-// Login 用户登录接口
-func (c *UserHandler) Login(ctx *gin.Context) {
-	type LoginReq struct {
+func (h *UserHandler) LoginJWT(ctx *gin.Context) {
+	type Req struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
-
-	var req LoginReq
-	// 当我们调用 Bind 方法的时候，如果有问题，Bind 方法已经直接写响应回去了
+	var req Req
 	if err := ctx.Bind(&req); err != nil {
 		return
 	}
-	u, err := c.svc.Login(ctx.Request.Context(), req.Email, req.Password)
-	if err == service.ErrInvalidUserOrPassword {
-		ctx.String(http.StatusOK, "用户名或者密码不正确，请重试")
-		return
-	}
-	sess := sessions.Default(ctx)
-	sess.Set(userIdKey, u.Id)
-	sess.Options(sessions.Options{
-		// 60 秒过期
-		MaxAge: 60,
-	})
-	err = sess.Save()
-	if err != nil {
-		ctx.String(http.StatusOK, "服务器异常")
-		return
-	}
-	ctx.String(http.StatusOK, "登录成功")
-}
-
-// Edit 用户编译信息
-func (c *UserHandler) Edit(ctx *gin.Context) {
-
-}
-
-// Profile 用户详情
-func (c *UserHandler) Profile(ctx *gin.Context) {
-	type Profile struct {
-		Email string
-	}
-	sess := sessions.Default(ctx)
-	id := sess.Get(userIdKey).(int64)
-	u, err := c.svc.Profile(ctx, id)
-	if err != nil {
-		// 按照道理来说，这边 id 对应的数据肯定存在，所以要是没找到，
-		// 那就说明是系统出了问题。
+	u, err := h.svc.Login(ctx, req.Email, req.Password)
+	switch err {
+	case nil:
+		uc := UserClaims{
+			Uid: u.Id,
+			RegisteredClaims: jwt.RegisteredClaims{
+				// 1 分钟过期
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Minute)),
+			},
+		}
+		token := jwt.NewWithClaims(jwt.SigningMethodHS512, uc)
+		tokenStr, err := token.SignedString(JWTKey)
+		if err != nil {
+			ctx.String(http.StatusOK, "系统错误")
+		}
+		ctx.Header("x-jwt-token", tokenStr)
+		ctx.String(http.StatusOK, "登录成功")
+	case service.ErrInvalidUserOrPassword:
+		ctx.String(http.StatusOK, "用户名或者密码不对")
+	default:
 		ctx.String(http.StatusOK, "系统错误")
+	}
+}
+
+func (h *UserHandler) Login(ctx *gin.Context) {
+	type Req struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	var req Req
+	if err := ctx.Bind(&req); err != nil {
 		return
 	}
-	ctx.JSON(http.StatusOK, Profile{
-		Email: u.Email,
-	})
+	u, err := h.svc.Login(ctx, req.Email, req.Password)
+	switch err {
+	case nil:
+		sess := sessions.Default(ctx)
+		sess.Set("userId", u.Id)
+		sess.Options(sessions.Options{
+			// 十分钟
+			MaxAge: 30,
+		})
+		err = sess.Save()
+		if err != nil {
+			ctx.String(http.StatusOK, "系统错误")
+			return
+		}
+		ctx.String(http.StatusOK, "登录成功")
+	case service.ErrInvalidUserOrPassword:
+		ctx.String(http.StatusOK, "用户名或者密码不对")
+	default:
+		ctx.String(http.StatusOK, "系统错误")
+	}
+}
+
+func (h *UserHandler) Edit(ctx *gin.Context) {
+	// 嵌入一段刷新过期时间的代码
+}
+
+func (h *UserHandler) Profile(ctx *gin.Context) {
+	//us := ctx.MustGet("user").(UserClaims)
+	ctx.String(http.StatusOK, "这是 profile")
+	// 嵌入一段刷新过期时间的代码
+}
+
+var JWTKey = []byte("k6CswdUm77WKcbM68UQUuxVsHSpTCwgK")
+
+type UserClaims struct {
+	jwt.RegisteredClaims
+	Uid int64
 }
