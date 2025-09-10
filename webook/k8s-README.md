@@ -1,3 +1,18 @@
+```bash
+$$env:GOOS = "linux"
+```
+```bash
+$$env:GOARCH = "arm"
+```
+```bash
+go build -tags=k8s -o webook .
+```
+```bash
+Remove-Item Env:GOOS
+Remove-Item Env:GOARCH
+```
+
+
 ## 构建和推送Docker镜像
 项目中的Makefile已经提供了构建Docker镜像的命令：
 ```bash
@@ -43,3 +58,12 @@ kubectl get ingress    # 查看Ingress配置
 
 应用使用了持久卷存储MySQL数据，确保主机上存在 /mnt/data 目录
 如果需要删除所有资源，可以按照相反的顺序使用 kubectl delete -f <文件名> 命令。
+
+```bash
+kubectl get all 
+kubectl delete pv webook-mysql-pvc 
+kubectl delete pvc webook-mysql-pvc 
+kubectl delete ingress webook-record-ingress 
+kubectl delete service webook-record webook-record-mysql webook-record-redis 
+kubectl delete deployment webook-record-service webook-record-mysql webook-record-redis
+```
